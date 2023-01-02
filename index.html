@@ -1,0 +1,17 @@
+<html>
+    <body style="background-color: black;">
+        <script>
+            let h1
+            
+            window.onload = () => {
+                h1 = document.querySelector('h1')
+                setTimeout(()=>{
+                let webSocket = new WebSocket("ws://localhost:8080")
+                webSocket.onmessage = (e) => {h1.innerHTML = ""+e.data}
+                //webSocket.onopen = () => webSocket.send("test")
+                }, 5000) 
+            }
+        </script>
+        <h1 style="color: white;"></h1>
+    </body>
+</html>
