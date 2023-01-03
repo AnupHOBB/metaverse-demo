@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { toRadians, cross } from 'maths'
+import { toRadians, cross, subtractVectors } from 'maths'
 
 const FOV = 75
 const ASPECT_RATIO = 2
@@ -46,6 +46,19 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap
 renderer.render(scene, camera)
 setInterval(render_loop, 1000/FRAME_RATE)
 
+class SceneObject
+{
+    constructor(token, color, position, rotation, dimension, actionType)
+    {
+        this.token = token
+        this.color = color
+        this.position = position
+        this.rotation = rotation
+        this.dimension = dimension
+        this.actionType = actionType
+    }
+}
+
 function render_loop()
 {
     canvas.width = window.innerWidth 
@@ -53,6 +66,7 @@ function render_loop()
     renderer.setSize(window.innerWidth - 15, window.innerHeight - 16, false)
     renderer.render(scene, camera)
     updateCameraPosition()
+    notifyServer()
 }
 
 let isMouseDown = false
@@ -76,11 +90,16 @@ function onMouseMove(event)
     {
         let cursorPos = { x: event.clientX, y: event.clientY }
         let yaw = lastPos.x - cursorPos.x
-        let pitch = lastPos.y - cursorPos.y
         let yawRad = toRadians(yaw)            
-        let pitchRad = toRadians(pitch)
+        player.rotation.y += yawRad
+        let playerToCamVector = subtractVectors(camera.position, player.position)
+        let ogplayerToCamVector = new THREE.Vector3(playerToCamVector.x, playerToCamVector.y, playerToCamVector.z)
+        playerToCamVector.applyAxisAngle(new THREE.Vector3(0, 1, 0), yawRad)
+        let displacement = subtractVectors(playerToCamVector, ogplayerToCamVector)
+        camera.position.x += displacement.x
+        camera.position.y += displacement.y
+        camera.position.z += displacement.z
         camera.rotation.y += yawRad
-        camera.rotation.x += pitchRad
         camera.getWorldDirection(front)
         right = cross(front, up)
         lastPos = { x: cursorPos.x, y: cursorPos.y }
@@ -123,24 +142,40 @@ function updateCameraPosition()
 {
     if (keyMap.w)
     {
+        player.position.x += front.x
+        player.position.y += front.y
+        player.position.z += front.z
+
         camera.position.x += front.x
         camera.position.y += front.y
         camera.position.z += front.z
     }
     if (keyMap.s)
     {
+        player.position.x -= front.x
+        player.position.y -= front.y
+        player.position.z -= front.z
+
         camera.position.x -= front.x
         camera.position.y -= front.y
         camera.position.z -= front.z
     }
     if (keyMap.a)
     {
+        player.position.x -= right.x
+        player.position.y -= right.y
+        player.position.z -= right.z
+
         camera.position.x -= right.x
         camera.position.y -= right.y
         camera.position.z -= right.z
     }
     if (keyMap.d)
     {
+        player.position.x += right.x
+        player.position.y += right.y
+        player.position.z += right.z
+
         camera.position.x += right.x
         camera.position.y += right.y
         camera.position.z += right.z
@@ -155,6 +190,7 @@ function addToWorld(sceneobject)
     let geometry = new THREE.BoxGeometry(sceneobject.dimension.x, sceneobject.dimension.y, sceneobject.dimension.z)
     let box = new THREE.Mesh(geometry, material)
     box.position.set(sceneobject.position.x, sceneobject.position.y, sceneobject.position.z)
+    box.rotation
     box.receiveShadow = true
     box.castShadow = true
     scene.add(box)
@@ -177,12 +213,14 @@ function removeFromWorld(sceneobject)
 const ACTION_ADD = "add"
 const ACTION_DELETE = "delete"
 const ACTION_READY = "ready"
+const ACTION_UPDATE = "update"
 let myToken
 let hasReceivedToken = false
 let player
+let webSocket
 window.onload = () => {
     setTimeout(()=>{
-        let webSocket = new WebSocket("ws://localhost:8080")
+        webSocket = new WebSocket("ws://localhost:8080")
         webSocket.onmessage = (e) => {
             if (hasReceivedToken)
             {
@@ -191,14 +229,30 @@ window.onload = () => {
                     addToWorld(sceneObject)
                 else if (sceneObject.actionType == ACTION_DELETE)
                     removeFromWorld(sceneObject)
+                else if (sceneObject.actionType == ACTION_UPDATE)
+                {
+                    let box = sceneMap.get(sceneObject.token)
+                    box.position.x = sceneObject.position.x
+                    box.position.y = sceneObject.position.y
+                    box.position.z = sceneObject.position.z
+                    box.rotation.x = sceneObject.rotation.x
+                    box.rotation.y = sceneObject.rotation.y
+                    box.rotation.z = sceneObject.rotation.z
+                }
             }
             else
             {
-                myToken = e.data
+                myToken = parseInt(e.data)
                 console.log("myToken :: "+myToken)
                 hasReceivedToken = true
-                webSocket.send(ACTION_READY)
+                webSocket.send(JSON.stringify(new SceneObject(0, 0, 0, 0, 0, ACTION_READY)))
             }
         }
     }, 5000) 
+}
+
+function notifyServer()
+{
+    if (webSocket != null && webSocket != undefined && player != null && player != undefined)
+        webSocket.send(JSON.stringify(new SceneObject(myToken, 0, player.position, {x: player.rotation.x, y: player.rotation.y, z: player.rotation.z}, 0, ACTION_UPDATE  )))
 }

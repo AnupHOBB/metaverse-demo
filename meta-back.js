@@ -7,14 +7,16 @@ const wsServer = new WebSocket.Server({ port: PORT })
 const ACTION_ADD = "add"
 const ACTION_DELETE = "delete"
 const ACTION_READY = "ready"
+const ACTION_UPDATE = "update"
 
 class SceneObject
 {
-    constructor(token, color, position, dimension, actionType)
+    constructor(token, color, position, rotation, dimension, actionType)
     {
         this.token = token
         this.color = color
         this.position = position
+        this.rotation = rotation
         this.dimension = dimension
         this.actionType = actionType
     }
@@ -31,7 +33,7 @@ let defaultDimension = new Three.Vector3(1, 1, 1)
 let clientMap = new Map()
 
 let baseSceneObjects = new Array()
-baseSceneObjects.push(new SceneObject(-1, 0x44aa88, new Three.Vector3(0, -2, -50), new Three.Vector3(100, 0.1, 100), ACTION_ADD))
+baseSceneObjects.push(new SceneObject(-1, 0x44aa88, new Three.Vector3(0, -2, -50), new Three.Vector3(0, 0, 0), new Three.Vector3(100, 0.1, 100), ACTION_ADD))
 
 wsServer.on('connection', (wsClient) => 
 {
@@ -42,10 +44,11 @@ wsServer.on('connection', (wsClient) =>
     
     wsClient.on("message", data => {
         console.log(`Client has sent us: ${data}`)
-        if (data == ACTION_READY)
+        let clientSceneObject = jsonToSceneObject(data) 
+        if (clientSceneObject.actionType == ACTION_READY)
         {
             let newClientSceneObject = createNewSceneObject(wsClient.id)
-            notifyClients(newClientSceneObject)
+            notifyClients(wsClient.id, newClientSceneObject)
             for (sceneObject of baseSceneObjects)
                 notifyClient(wsClient, sceneObject)
             let clientSceneObjects = clientMap.values()
@@ -55,6 +58,8 @@ wsServer.on('connection', (wsClient) =>
             updateScene(wsClient, newClientSceneObject)
             console.log("clientMap size :: "+clientMap.size)
         }
+        else if (clientSceneObject.actionType == ACTION_UPDATE)
+            notifyClients(wsClient.id, clientSceneObject)
     });
 
     wsClient.on('close', () => { 
@@ -64,7 +69,7 @@ wsServer.on('connection', (wsClient) =>
             let disClientSceneObject = clientMap.get(wsClient)
             disClientSceneObject.actionType = ACTION_DELETE
             clientMap.delete(wsClient)
-            notifyClients(disClientSceneObject)
+            notifyClients(wsClient.id, disClientSceneObject)
             if (startColorIndex > 0)
                 startColorIndex = 0
             startPosition.x -= 5    
@@ -79,11 +84,12 @@ function updateScene(client, sceneObject)
     clientMap.set(client, sceneObject)
 }
 
-function notifyClients(sceneObject)
+function notifyClients(clientId, sceneObject)
 {
     let keys = clientMap.keys()
     for (key of keys)
-        notifyClient(key, sceneObject)
+        if (key.id != clientId)
+            notifyClient(key, sceneObject)
 }
 
 function notifyClient(client, sceneObject)
@@ -105,7 +111,7 @@ function sceneObjectToJson(sceneObject)
 
 function createNewSceneObject(token)
 {
-    let sceneObject = new SceneObject(token, colors[startColorIndex], new Three.Vector3(startPosition.x, startPosition.y, startPosition.z), defaultDimension, ACTION_ADD)
+    let sceneObject = new SceneObject(token, colors[startColorIndex], new Three.Vector3(startPosition.x, startPosition.y, startPosition.z), new Three.Vector3(0, 0, 0), defaultDimension, ACTION_ADD)
     startPosition.x += 5
     startColorIndex++
     if (startColorIndex == colors.length)
