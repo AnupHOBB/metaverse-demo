@@ -160,6 +160,11 @@ function addToWorld(sceneobject)
     scene.add(box)
     if (sceneobject.token >= 0)
         sceneMap.set(sceneobject.token, box)
+    if (sceneobject.token == myToken)
+    {   
+        player = box
+        camera.position.x = box.position.x
+    }
 }
 
 function removeFromWorld(sceneobject)
@@ -171,16 +176,29 @@ function removeFromWorld(sceneobject)
 
 const ACTION_ADD = "add"
 const ACTION_DELETE = "delete"
-
+const ACTION_READY = "ready"
+let myToken
+let hasReceivedToken = false
+let player
 window.onload = () => {
     setTimeout(()=>{
         let webSocket = new WebSocket("ws://localhost:8080")
         webSocket.onmessage = (e) => {
-            let sceneObject = JSON.parse(e.data)
-            if (sceneObject.actionType == ACTION_ADD)
-                addToWorld(sceneObject)
-            else if (sceneObject.actionType == ACTION_DELETE)
-                removeFromWorld(sceneObject)
+            if (hasReceivedToken)
+            {
+                let sceneObject = JSON.parse(e.data)
+                if (sceneObject.actionType == ACTION_ADD)
+                    addToWorld(sceneObject)
+                else if (sceneObject.actionType == ACTION_DELETE)
+                    removeFromWorld(sceneObject)
+            }
+            else
+            {
+                myToken = e.data
+                console.log("myToken :: "+myToken)
+                hasReceivedToken = true
+                webSocket.send(ACTION_READY)
+            }
         }
     }, 5000) 
 }

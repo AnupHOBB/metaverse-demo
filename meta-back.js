@@ -6,6 +6,7 @@ const wsServer = new WebSocket.Server({ port: PORT })
 
 const ACTION_ADD = "add"
 const ACTION_DELETE = "delete"
+const ACTION_READY = "ready"
 
 class SceneObject
 {
@@ -37,32 +38,38 @@ wsServer.on('connection', (wsClient) =>
     wsClient.id = token
     token++
     console.log("client request detected with id "+wsClient.id)
-
-    let newClientSceneObject = createNewSceneObject(wsClient.id)
-    notifyClients(newClientSceneObject)
-    for (sceneObject of baseSceneObjects)
-        notifyClient(wsClient, sceneObject)
-    let clientSceneObjects = clientMap.values()
-    for (clientSceneObject of clientSceneObjects)
-        notifyClient(wsClient, clientSceneObject)
-    notifyClient(wsClient, newClientSceneObject)
-    updateScene(wsClient, newClientSceneObject)
-    console.log("clientMap size :: "+clientMap.size)
-
+    wsClient.send(wsClient.id)
+    
     wsClient.on("message", data => {
         console.log(`Client has sent us: ${data}`)
+        if (data == ACTION_READY)
+        {
+            let newClientSceneObject = createNewSceneObject(wsClient.id)
+            notifyClients(newClientSceneObject)
+            for (sceneObject of baseSceneObjects)
+                notifyClient(wsClient, sceneObject)
+            let clientSceneObjects = clientMap.values()
+            for (clientSceneObject of clientSceneObjects)
+                notifyClient(wsClient, clientSceneObject)
+            notifyClient(wsClient, newClientSceneObject)
+            updateScene(wsClient, newClientSceneObject)
+            console.log("clientMap size :: "+clientMap.size)
+        }
     });
 
     wsClient.on('close', () => { 
         console.log("client with id :: "+wsClient.id+" disconnected")
-        let disClientSceneObject = clientMap.get(wsClient)
-        disClientSceneObject.actionType = ACTION_DELETE
-        clientMap.delete(wsClient)
-        notifyClients(disClientSceneObject)
-        if (startColorIndex > 0)
-            startColorIndex = 0
-        startPosition.x -= 5    
-        console.log("clientmap size :: "+clientMap.size)
+        if (clientMap.size > 0)
+        {
+            let disClientSceneObject = clientMap.get(wsClient)
+            disClientSceneObject.actionType = ACTION_DELETE
+            clientMap.delete(wsClient)
+            notifyClients(disClientSceneObject)
+            if (startColorIndex > 0)
+                startColorIndex = 0
+            startPosition.x -= 5    
+            console.log("clientmap size :: "+clientMap.size)
+        }
     })
     //wsClient.send(clients)
 })
