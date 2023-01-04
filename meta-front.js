@@ -66,7 +66,6 @@ function render_loop()
     renderer.setSize(window.innerWidth - 15, window.innerHeight - 16, false)
     renderer.render(scene, camera)
     updateCameraPosition()
-    notifyServer()
 }
 
 let isMouseDown = false
@@ -103,6 +102,7 @@ function onMouseMove(event)
         camera.getWorldDirection(front)
         right = cross(front, up)
         lastPos = { x: cursorPos.x, y: cursorPos.y }
+        notifyServer()
     }
 }
 
@@ -149,6 +149,7 @@ function updateCameraPosition()
         camera.position.x += front.x
         camera.position.y += front.y
         camera.position.z += front.z
+        notifyServer()
     }
     if (keyMap.s)
     {
@@ -159,6 +160,7 @@ function updateCameraPosition()
         camera.position.x -= front.x
         camera.position.y -= front.y
         camera.position.z -= front.z
+        notifyServer()
     }
     if (keyMap.a)
     {
@@ -169,6 +171,7 @@ function updateCameraPosition()
         camera.position.x -= right.x
         camera.position.y -= right.y
         camera.position.z -= right.z
+        notifyServer()
     }
     if (keyMap.d)
     {
@@ -179,6 +182,7 @@ function updateCameraPosition()
         camera.position.x += right.x
         camera.position.y += right.y
         camera.position.z += right.z
+        notifyServer()
     }
 }
 
