@@ -1,4 +1,5 @@
 {
+  "type": "module",
   "dependencies": {
     "three": "^0.148.0",
     "ws": "^8.11.0"

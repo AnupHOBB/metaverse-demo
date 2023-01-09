@@ -1,5 +1,7 @@
 import * as THREE from 'three'
-import { toRadians, cross, subtractVectors } from 'maths'
+import { toRadians, cross, subtractVectors, addVectors } from 'maths'
+import { KeyEvent, MouseEvent } from 'events'
+import { WebSocketClient, WebSocketCallbacks } from 'websocket'
 
 const FOV = 75
 const ASPECT_RATIO = 2
@@ -15,8 +17,6 @@ let up = new THREE.Vector3(0, 1, 0)
 let camera = new THREE.PerspectiveCamera(FOV, ASPECT_RATIO, NEAR_PLANE, FAR_PLANE)
 camera.rotation.order = "YXZ"
 
-let scene = new THREE.Scene()
-
 let light = new THREE.DirectionalLight(0xFFFFFF, 1)
 light.position.set(-1, 2, 4)
 light.castShadow = true
@@ -25,6 +25,7 @@ light.shadow.mapSize.height = 512
 light.shadow.camera.near = 0.5
 light.shadow.camera.far = 500
 
+let scene = new THREE.Scene()
 scene.add(light)
 
 if(ENABLE_LIGHT_GIZMOS)
@@ -33,12 +34,15 @@ if(ENABLE_LIGHT_GIZMOS)
     scene.add(helper)
 }
 
+let mouseEvent = new MouseEvent(updateCameraRotation)
+let keyEvent = new KeyEvent(updateCameraPosition)
+
 let canvas = document.querySelector("canvas")
-canvas.addEventListener("mousedown", onMouseDown)
-canvas.addEventListener("mouseup", onMouseUp)
-canvas.addEventListener("mousemove", onMouseMove)
-window.addEventListener("keydown", onKeyDown)
-window.addEventListener("keyup", onKeyUp)
+canvas.addEventListener("mousedown", (e)=>mouseEvent.onDown(e))
+canvas.addEventListener("mouseup", (e)=>mouseEvent.onUp())
+canvas.addEventListener("mousemove", (e)=>mouseEvent.onMove(e))
+window.addEventListener("keydown", (e)=>keyEvent.onDown(e))
+window.addEventListener("keyup", (e)=>keyEvent.onUp(e))
 
 let renderer = new THREE.WebGLRenderer({canvas, alpha:true})
 renderer.shadowMap.enabled = true
@@ -46,18 +50,18 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap
 renderer.render(scene, camera)
 setInterval(render_loop, 1000/FRAME_RATE)
 
-class SceneObject
-{
-    constructor(token, color, position, rotation, dimension, actionType)
-    {
-        this.token = token
-        this.color = color
-        this.position = position
-        this.rotation = rotation
-        this.dimension = dimension
-        this.actionType = actionType
-    }
-}
+let colors = [0xFFAA00, 0xA4238B, 0xA123ED]
+let startPosition = new THREE.Vector3(0, -1.5, -5)
+let startRotation = new THREE.Vector3(0, 0, 0)
+let defaultDimension = new THREE.Vector3(1, 1, 1)
+let player
+let playerColor
+let wsCallbacks = new WebSocketCallbacks(onResponse, onResponse, removeFromWorld)
+
+let wsClient = new WebSocketClient("ws://localhost:8080", wsCallbacks)
+wsClient.startClient(onTokenReceive)
+
+let sceneMap = new Map()
 
 function render_loop()
 {
@@ -65,128 +69,56 @@ function render_loop()
     canvas.width = canvas.innerWidth 
     renderer.setSize(window.innerWidth - 15, window.innerHeight - 16, false)
     renderer.render(scene, camera)
-    updateCameraPosition()
+    keyEvent.notifyEvent()
 }
 
-let isMouseDown = false
-let lastPos = { x: -1, y: -1 }
-
-function onMouseDown(event)
+function updateCameraRotation(lastPos, cursorPos)
 {
-    lastPos = { x: event.clientX, y: event.clientY }
-    isMouseDown = true
+    let yaw = lastPos.x - cursorPos.x
+    let yawRad = toRadians(yaw)            
+    player.rotation.y += yawRad
+    let playerToCamVector = subtractVectors(camera.position, player.position)
+    let ogplayerToCamVector = new THREE.Vector3(playerToCamVector.x, playerToCamVector.y, playerToCamVector.z)
+    playerToCamVector.applyAxisAngle(new THREE.Vector3(0, 1, 0), yawRad)
+    let displacement = subtractVectors(playerToCamVector, ogplayerToCamVector)
+    camera.position.x += displacement.x
+    camera.position.y += displacement.y
+    camera.position.z += displacement.z
+    camera.rotation.y += yawRad
+    camera.getWorldDirection(front)
+    right = cross(front, up)
+    wsClient.notifyUpdate(playerColor, player.position, {x: player.rotation.x, y: player.rotation.y, z: player.rotation.z}, 0)
 }
 
-function onMouseUp()
+function updateCameraPosition(pressedW, pressedS, pressedA, pressedD)
 {
-    lastPos = { x: -1, y: -1 }
-    isMouseDown = false
+    if (pressedW)
+        incrementPosition(front)
+    if (pressedS)
+        decrementPosition(front)
+    if (pressedA)
+        decrementPosition(right)
+    if (pressedD)
+        incrementPosition(right)
+    if (pressedW || pressedS || pressedA || pressedD)
+        wsClient.notifyUpdate(playerColor, player.position, {x: player.rotation.x, y: player.rotation.y, z: player.rotation.z}, 0)
 }
 
-function onMouseMove(event)
+function incrementPosition(diffVector)
 {
-    if (isMouseDown)
-    {
-        let cursorPos = { x: event.clientX, y: event.clientY }
-        let yaw = lastPos.x - cursorPos.x
-        let yawRad = toRadians(yaw)            
-        player.rotation.y += yawRad
-        let playerToCamVector = subtractVectors(camera.position, player.position)
-        let ogplayerToCamVector = new THREE.Vector3(playerToCamVector.x, playerToCamVector.y, playerToCamVector.z)
-        playerToCamVector.applyAxisAngle(new THREE.Vector3(0, 1, 0), yawRad)
-        let displacement = subtractVectors(playerToCamVector, ogplayerToCamVector)
-        camera.position.x += displacement.x
-        camera.position.y += displacement.y
-        camera.position.z += displacement.z
-        camera.rotation.y += yawRad
-        camera.getWorldDirection(front)
-        right = cross(front, up)
-        lastPos = { x: cursorPos.x, y: cursorPos.y }
-        notifyServer()
-    }
+    let playerPosition = addVectors(player.position, diffVector)
+    player.position.set(playerPosition.x, playerPosition.y, playerPosition.z)
+    let cameraPosition = addVectors(camera.position, diffVector)
+    camera.position.set(cameraPosition.x, cameraPosition.y, cameraPosition.z)
 }
 
-let keyMap = 
+function decrementPosition(diffVector)
 {
-    w : false,
-    s : false,
-    a : false,
-    d : false,
+    let playerPosition = subtractVectors(player.position, diffVector)
+    player.position.set(playerPosition.x, playerPosition.y, playerPosition.z)
+    let cameraPosition = subtractVectors(camera.position, diffVector)
+    camera.position.set(cameraPosition.x, cameraPosition.y, cameraPosition.z)
 }
-
-function onKeyDown(event)
-{
-    if (event.key == 'w')
-        keyMap.w = true
-    if (event.key == 's')
-        keyMap.s = true
-    if (event.key == 'a')
-        keyMap.a = true
-    if (event.key == 'd')
-        keyMap.d = true
-}
-
-function onKeyUp(event)
-{
-    if (event.key == 'w')
-        keyMap.w = false
-    if (event.key == 's')
-        keyMap.s = false
-    if (event.key == 'a')
-        keyMap.a = false
-    if (event.key == 'd')
-        keyMap.d = false
-}
-
-function updateCameraPosition()
-{
-    if (keyMap.w)
-    {
-        player.position.x += front.x
-        player.position.y += front.y
-        player.position.z += front.z
-
-        camera.position.x += front.x
-        camera.position.y += front.y
-        camera.position.z += front.z
-        notifyServer()
-    }
-    if (keyMap.s)
-    {
-        player.position.x -= front.x
-        player.position.y -= front.y
-        player.position.z -= front.z
-
-        camera.position.x -= front.x
-        camera.position.y -= front.y
-        camera.position.z -= front.z
-        notifyServer()
-    }
-    if (keyMap.a)
-    {
-        player.position.x -= right.x
-        player.position.y -= right.y
-        player.position.z -= right.z
-
-        camera.position.x -= right.x
-        camera.position.y -= right.y
-        camera.position.z -= right.z
-        notifyServer()
-    }
-    if (keyMap.d)
-    {
-        player.position.x += right.x
-        player.position.y += right.y
-        player.position.z += right.z
-
-        camera.position.x += right.x
-        camera.position.y += right.y
-        camera.position.z += right.z
-        notifyServer()
-    }
-}
-
-let sceneMap = new Map()
 
 function addToWorld(sceneobject)
 {
@@ -200,7 +132,7 @@ function addToWorld(sceneobject)
     scene.add(box)
     if (sceneobject.token >= 0)
         sceneMap.set(sceneobject.token, box)
-    if (sceneobject.token == myToken)
+    if (sceneobject.token == wsClient.token)
     {   
         player = box
         camera.position.x = box.position.x
@@ -214,49 +146,25 @@ function removeFromWorld(sceneobject)
     sceneMap.delete(sceneobject.token)
 }
 
-const ACTION_ADD = "add"
-const ACTION_DELETE = "delete"
-const ACTION_READY = "ready"
-const ACTION_UPDATE = "update"
-let myToken
-let hasReceivedToken = false
-let player
-let webSocket
-window.onload = () => {
-    setTimeout(()=>{
-        webSocket = new WebSocket("ws://localhost:8080")
-        webSocket.onmessage = (e) => {
-            if (hasReceivedToken)
-            {
-                let sceneObject = JSON.parse(e.data)
-                if (sceneObject.actionType == ACTION_ADD)
-                    addToWorld(sceneObject)
-                else if (sceneObject.actionType == ACTION_DELETE)
-                    removeFromWorld(sceneObject)
-                else if (sceneObject.actionType == ACTION_UPDATE)
-                {
-                    let box = sceneMap.get(sceneObject.token)
-                    box.position.x = sceneObject.position.x
-                    box.position.y = sceneObject.position.y
-                    box.position.z = sceneObject.position.z
-                    box.rotation.x = sceneObject.rotation.x
-                    box.rotation.y = sceneObject.rotation.y
-                    box.rotation.z = sceneObject.rotation.z
-                }
-            }
-            else
-            {
-                myToken = parseInt(e.data)
-                console.log("myToken :: "+myToken)
-                hasReceivedToken = true
-                webSocket.send(JSON.stringify(new SceneObject(0, 0, 0, 0, 0, ACTION_READY)))
-            }
-        }
-    }, 5000) 
+function onTokenReceive(token)
+{
+    let colorIndex = token - (parseInt(token/colors.length) * colors.length)
+    playerColor = colors[colorIndex]
+    wsClient.notifyReady(playerColor, startPosition, startRotation, defaultDimension)
 }
 
-function notifyServer()
+function onResponse(sceneObject)
 {
-    if (webSocket != null && webSocket != undefined && player != null && player != undefined)
-        webSocket.send(JSON.stringify(new SceneObject(myToken, 0, player.position, {x: player.rotation.x, y: player.rotation.y, z: player.rotation.z}, 0, ACTION_UPDATE  )))
+    let box = sceneMap.get(sceneObject.token)
+    if (box != undefined)
+    {
+        box.position.x = sceneObject.position.x
+        box.position.y = sceneObject.position.y
+        box.position.z = sceneObject.position.z
+        box.rotation.x = sceneObject.rotation.x
+        box.rotation.y = sceneObject.rotation.y
+        box.rotation.z = sceneObject.rotation.z
+    }
+    else
+        addToWorld(sceneObject)
 }
