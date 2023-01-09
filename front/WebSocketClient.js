@@ -1,5 +1,5 @@
-import { toSceneObject } from 'helper'
-import * as ACTIONTYPE from 'actiontype'
+import { toSceneObject } from '../common/Helpers.js'
+import * as ACTIONTYPE from '../common/ActionType.js'
 
 export class WebSocketClient
 {
